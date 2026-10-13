@@ -1,0 +1,12 @@
+{
+  "name": "cmd-enter-to-send",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Chrome extension: Enter inserts a newline and Cmd+Enter sends on Claude and ChatGPT",
+  "scripts": {
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
+  }
+}
