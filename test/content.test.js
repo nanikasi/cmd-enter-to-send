@@ -187,3 +187,105 @@ test('events re-dispatched to the site carry keyCode 13', () => {
     { shift: false, meta: false, keyCode: 13 },
   ]);
 });
+
+// --- IME composition after a non-inclusive mark (openai/codex#53972) ---
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 5));
+
+function composer(win, html) {
+  const ed = win.document.getElementById('ed');
+  ed.innerHTML = html;
+  return ed;
+}
+
+// Mimics Chrome inserting composition text as a new text node and moving the caret into it.
+function startComposition(win, parent, text) {
+  parent.dispatchEvent(new win.Event('compositionstart', { bubbles: true }));
+  const node = win.document.createTextNode(text);
+  parent.appendChild(node);
+  win.getSelection().collapse(node, node.length);
+  return node;
+}
+
+function endComposition(win, parent) {
+  parent.dispatchEvent(new win.Event('compositionend', { bubbles: true }));
+}
+
+test('makes the mark before the composition text node non-editable while composing', async () => {
+  const win = setup('<div id="ed" contenteditable="true"></div>');
+  const ed = composer(win, '<p><span data-prompt-literal-paste="">ABC</span></p>');
+  const p = ed.firstChild;
+  const span = p.firstChild;
+
+  startComposition(win, p, 't');
+  await flush();
+  assert.equal(span.getAttribute('contenteditable'), 'false');
+
+  p.lastChild.data = 'っt';
+  await flush();
+  assert.equal(span.getAttribute('contenteditable'), 'false');
+  assert.equal(p.innerHTML, '<span data-prompt-literal-paste="" contenteditable="false">ABC</span>っt');
+});
+
+test('restores the mark when the composition ends', async () => {
+  const win = setup('<div id="ed" contenteditable="true"></div>');
+  const ed = composer(win, '<p><span data-prompt-literal-paste="">ABC</span></p>');
+  const p = ed.firstChild;
+  const span = p.firstChild;
+  startComposition(win, p, 'って');
+  await flush();
+  assert.equal(span.hasAttribute('contenteditable'), true);
+
+  endComposition(win, p);
+  await flush();
+
+  assert.equal(span.hasAttribute('contenteditable'), false);
+});
+
+test('leaves an element that already declares contenteditable alone', async () => {
+  const win = setup('<div id="ed" contenteditable="true"></div>');
+  const ed = composer(win, '<p><span contenteditable="false">chip</span></p>');
+  const p = ed.firstChild;
+  const span = p.firstChild;
+
+  startComposition(win, p, 't');
+  await flush();
+  endComposition(win, p);
+  await flush();
+
+  assert.equal(span.getAttribute('contenteditable'), 'false');
+});
+
+test('leaves the DOM alone when the composition does not follow a mark', async () => {
+  const win = setup('<div id="ed" contenteditable="true"></div>');
+  const ed = composer(win, '<p>ABC<br></p>');
+  const p = ed.firstChild;
+
+  startComposition(win, p, 't');
+  await flush();
+
+  assert.equal(p.innerHTML, 'ABC<br>t');
+});
+
+test('leaves the DOM alone outside a composition', async () => {
+  const win = setup('<div id="ed" contenteditable="true"></div>');
+  const ed = composer(win, '<p><span data-prompt-literal-paste="">ABC</span></p>');
+  const p = ed.firstChild;
+  const node = win.document.createTextNode('x');
+  p.appendChild(node);
+  win.getSelection().collapse(node, 1);
+  await flush();
+
+  assert.equal(p.innerHTML, '<span data-prompt-literal-paste="">ABC</span>x');
+});
+
+test('leaves non-editable content alone', async () => {
+  const win = setup('<div id="ed"></div>');
+  const ed = composer(win, '<p><span data-prompt-literal-paste="">ABC</span></p>');
+  const p = ed.firstChild;
+
+  startComposition(win, p, 't');
+  await flush();
+
+  assert.equal(p.innerHTML, '<span data-prompt-literal-paste="">ABC</span>t');
+});
